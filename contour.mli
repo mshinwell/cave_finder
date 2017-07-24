@@ -5,7 +5,7 @@ val create
   -> z:float
   -> t option
 
-val compare_by_length_inverted : t -> t -> int
+val compare_lowest_altitude_first : t -> t -> int
 
 val fixed_point : t -> float * float
 
@@ -25,3 +25,5 @@ val fold_edges
 val approx_inside : t -> of_:t -> bool
 
 val centroid : t -> float * float
+
+val bounding_box : t -> float * float * float * float

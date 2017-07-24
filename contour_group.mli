@@ -7,6 +7,8 @@ val size : t -> int
 val longest_length : t -> float
 val longest_axis : t -> float
 
+val highest_altitude : t -> float
+
 val depth : t -> float
 val slope : t -> float
 
@@ -21,3 +23,5 @@ val fold
   -> init:'a
   -> f:('a -> Contour.t -> 'a)
   -> 'a
+
+val bounding_box : t -> float * float * float * float

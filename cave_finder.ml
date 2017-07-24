@@ -4,10 +4,10 @@ module Scanf = Caml.Scanf
 module Sys = Caml.Sys
 
 module Config = struct
-  let min_length = 18.0
-  let max_length = 100.0
+  let min_length = 20.0
+  let max_length = 80.0
 
-  let entrance_proximity = 10.0
+  let entrance_proximity = 5.0
 end
 
 let read_entrances ~pos_file ~extremities:(x_min, x_max, y_min, y_max) =
@@ -51,7 +51,7 @@ let num_entrances_close_to ~entrances ~x ~y ~allow_extra =
       let dx = ent_x -. x in
       let dy = ent_y -. y in
       let dist = Float.sqrt (dx*.dx +. dy*.dy) in
-      Float.(<=) dist (allow_extra +. Config.entrance_proximity))
+      Float.(<=) dist (allow_extra/.1.5 +. Config.entrance_proximity))
   in
   let names =
     List.map close_to ~f:(fun (station_name, _, _) -> station_name)
@@ -198,18 +198,64 @@ let write_one_contour ~svx_writer ~contour ~starting_station =
   in
   last_station + 1
 
+let draw_bounding_boxes = false
+let draw_centroids = false
+
 let write_one_contour_group ~svx_writer ~contour_group ~starting_station =
-  Contour_group.fold contour_group
-    ~init:starting_station
-    ~f:(fun station contour ->
-      write_one_contour ~svx_writer ~contour ~starting_station:station)
+  let station =
+    Contour_group.fold contour_group
+      ~init:starting_station
+      ~f:(fun station contour ->
+        write_one_contour ~svx_writer ~contour ~starting_station:station)
+  in
+  if not draw_bounding_boxes then station
+  else begin
+    let s1 = station in
+    let s1 =
+      Printf.sprintf "%d_s%d_l%.0f_d%.0f_p%.0f" s1
+        (Contour_group.size contour_group)
+        (Contour_group.longest_length contour_group)
+        (Contour_group.depth contour_group)
+        (Contour_group.slope contour_group)
+    in
+    let s2 = station + 1 in
+    let s3 = station + 2 in
+    let s4 = station + 3 in
+    let x_min, x_max, y_min, y_max =
+      Contour_group.bounding_box contour_group
+    in
+    let dx = x_max -. x_min in
+    let dy = y_max -. y_min in
+    let z = Contour_group.highest_altitude contour_group in
+    Caml.Printf.fprintf svx_writer "*fix %s %f %f %f\n"
+      s1 x_min y_min z;
+    Caml.Printf.fprintf svx_writer "%s %d 0.0 %f 0.0\n"
+      s1 s2 dy;
+    Caml.Printf.fprintf svx_writer "%d %d %f 0.0 0.0\n"
+      s2 s3 dx;
+    Caml.Printf.fprintf svx_writer "%d %d 0.0 %f 0.0\n"
+      s3 s4 (Float.neg dy);
+    Caml.Printf.fprintf svx_writer "%d %s %f 0.0 0.0\n"
+      s4 s1 (Float.neg dx);
+    if draw_centroids then begin
+      let sc = s4 + 1 in
+      let x, y = Contour_group.centroid contour_group in
+      let dx = x -. x_min in
+      let dy = y -. y_min in
+      Caml.Printf.fprintf svx_writer "%s %d %f %f 0.0\n"
+        s1 sc dx dy;
+      sc + 1
+    end else begin
+      s4 + 1
+      end
+  end
 
 let write_contour_groups ~svx_writer ~contour_groups ~entrances =
   let total_ents = Float.of_int (List.length entrances) in
-  let _station, num_written, num_close, num_missed, _entrances =
+  let _station, num_written, num_close, _entrances =
     List.fold contour_groups
-      ~init:(0, 0, 0, 0, entrances)
-      ~f:(fun (station, num_written, num_close, num_missed, entrances)
+      ~init:(0, 0, 0, entrances)
+      ~f:(fun (station, num_written, num_close, entrances)
               contour_group ->
         let longest_length = Contour_group.longest_length contour_group in
         let longest_axis = Contour_group.longest_axis contour_group in
@@ -217,25 +263,12 @@ let write_contour_groups ~svx_writer ~contour_groups ~entrances =
           let x, y = Contour_group.centroid contour_group in
           num_entrances_close_to ~entrances ~x ~y ~allow_extra:longest_axis
         in
-        let entrances =
-          List.filter entrances ~f:(fun (station_name, _x, _y) ->
-            not (List.mem names_close' station_name ~equal:String.(=)))
-        in
         let slope = Contour_group.slope contour_group in
         let depth = Contour_group.depth contour_group in
-        if Float.(>=) slope 45.0
-          || Float.(>=) depth 3.0
-          || (Contour_group.size contour_group > 2
-            && Float.(>) longest_length Config.min_length)
-(*
-        if Contour_group.size contour_group > 3
-(*
-          || Float.(>=) slope 60.0
-          || (Float.(>=) slope 30.0 && Float.(>=) depth 3.0)
-*)
-          || (Contour_group.size contour_group > 2
-            && Float.(>) longest_length Config.min_length)
-*)
+        if Float.(>=) slope 60.0
+          || Float.(>=) depth 5.0
+          || (Float.(>) longest_length Config.min_length
+            && Contour_group.size contour_group > 3)
         then begin
 (*
 Caml.Printf.printf "** accepted, len %.2f slope %.2f depth %.2f\n%!"
@@ -251,21 +284,23 @@ Caml.Printf.printf "** accepted, len %.2f slope %.2f depth %.2f\n%!"
               Caml.Printf.printf " %s" (String.strip name));
             Caml.Printf.printf "\n%!"
           end;
-          station, num_written + 1, num_close + num_close', num_missed,
-            entrances
+          let entrances =
+            List.filter entrances ~f:(fun (station_name, _x, _y) ->
+              not (List.mem names_close' station_name ~equal:String.(=)))
+          in
+          station, num_written + 1, num_close + num_close', entrances
         end else begin
 (*
-if Float.(>) depth 1.0 then begin
-Caml.Printf.printf "** rejected, len %.2f slope %.2f depth %.2f\n%!"
+if Contour_group.size contour_group > 1 then begin
+Caml.Printf.printf "** rejected, len %.2f slope %.2f depth %.2f, close to: %s\n%!"
   longest_length slope depth
+  (String.concat names_close' ~sep:", ")
 end;
 *)
-          station, num_written, num_close, num_close' + num_missed,
-            entrances
+          station, num_written, num_close, entrances
         end)
   in
   Caml.Printf.printf "Number of entrances well located: %d\n" num_close;
-  Caml.Printf.printf "Number of entrances missed: %d\n" num_missed;
   Caml.Printf.printf ">> Ratio of well located / all entrances: %.0f%%\n"
     (Float.of_int num_close /. total_ents *. 100.0);
   num_written

@@ -14,6 +14,14 @@ type t = {
   num_vertices : int;
 }
 
+let invariant t =
+  assert (Float.(<=) t.x_min t.x_max);
+  assert (Float.(<=) t.y_min t.y_max);
+  assert (Float.(>=) t.x_fix t.x_min);
+  assert (Float.(<=) t.x_fix t.x_max);
+  assert (Float.(>=) t.y_fix t.y_min);
+  assert (Float.(<=) t.y_fix t.y_max)
+
 let create ~vertices ~z =
   match vertices with
   | [] | [_] -> None
@@ -58,10 +66,11 @@ let create ~vertices ~z =
           num_vertices = 1 + List.length rest;
         }
       in
+      invariant t;
       Some t
 
-let compare_by_length_inverted t1 t2 =
-  Int.neg (Float.compare t1.length t2.length)
+let compare_lowest_altitude_first t1 t2 =
+  Float.compare t1.z t2.z
 
 let shorter t1 ~than:t2 =
   Float.(<) t1.length t2.length
@@ -84,6 +93,8 @@ let length t = t.length
 let longest_axis t =
   let x_range = t.x_max -. t.x_min in
   let y_range = t.y_max -. t.y_min in
+  assert (Float.(>=) x_range 0.0);
+  assert (Float.(>=) y_range 0.0);
   Float.max x_range y_range
 
 let fold_edges t ~init ~f =
@@ -127,3 +138,5 @@ let slope_from_bounding_box t ~to_:(x, y, z) =
   let slope3 = slope t.x_max t.y_min in
   let slope4 = slope t.x_max t.y_max in
   (slope1 +. slope2 +. slope3 +. slope4) /. 4.0
+
+let bounding_box t = t.x_min, t.x_max, t.y_min, t.y_max
